@@ -1,0 +1,83 @@
+# ============================================
+# AnalyticDB PostgreSQL 配置示例
+# ============================================
+# 复制此文件为 application.properties 并修改相应的值
+
+# ============================================
+# 服务器配置
+# ============================================
+server.port=8080
+spring.application.name=AgentScope-test
+
+# ============================================
+# OpenAI 配置（如果使用 OpenAI 模型）
+# ============================================
+agentscope.openai.api-key=sk-your-api-key-here
+agentscope.openai.base-url=https://api.openai.com/v1
+agentscope.openai.model-name=gpt-3.5-turbo
+
+# ============================================
+# AnalyticDB PostgreSQL 向量库配置
+# ============================================
+
+# --- 数据库连接配置 ---
+# 数据库主机地址（阿里云 AnalyticDB 实例地址）
+agentscope.analyticdb.host=gp-xxxxxxxxx.gpdb.rds.aliyuncs.com
+
+# 数据库端口（默认 5432）
+agentscope.analyticdb.port=5432
+
+# 数据库名称
+agentscope.analyticdb.database=your_database_name
+
+# 数据库用户名
+agentscope.analyticdb.username=your_username
+
+# 数据库密码（建议使用环境变量）
+# agentscope.analyticdb.password=${ANALYTICDB_PASSWORD}
+agentscope.analyticdb.password=your_password
+
+# --- 向量表配置 ---
+# 向量表名称
+agentscope.analyticdb.table-name=knowledge_vectors
+
+# 向量维度（必须与 embedding 模型输出一致）
+# OpenAI ada-002: 1536
+# BGE-large-zh: 1024
+# text2vec-large-chinese: 768
+agentscope.analyticdb.vector-dimension=1536
+
+# --- 检索配置 ---
+# 返回最相关的 K 个文档
+agentscope.analyticdb.top-k=3
+
+# 相似度阈值（0-1），低于此值的结果将被过滤
+# 建议值：0.5-0.8，越高越严格
+agentscope.analyticdb.score-threshold=0.5
+
+# 是否启用混合检索（向量 + 关键词）
+# true: 同时使用向量相似度和关键词匹配
+# false: 仅使用向量相似度
+agentscope.analyticdb.enable-hybrid-search=false
+
+# ============================================
+# 日志配置（可选）
+# ============================================
+logging.level.org.example.knowledge=INFO
+logging.level.org.springframework.jdbc=WARN
+
+# ============================================
+# 生产环境配置建议
+# ============================================
+# 1. 使用环境变量存储敏感信息：
+#    agentscope.analyticdb.password=${ANALYTICDB_PASSWORD}
+#
+# 2. 启用 SSL 连接（在 JDBC URL 中添加参数）
+#
+# 3. 配置连接池（HikariCP）：
+#    spring.datasource.hikari.maximum-pool-size=10
+#    spring.datasource.hikari.minimum-idle=5
+#    spring.datasource.hikari.connection-timeout=30000
+#
+# 4. 调整日志级别：
+#    logging.level.org.example.knowledge=WARN
