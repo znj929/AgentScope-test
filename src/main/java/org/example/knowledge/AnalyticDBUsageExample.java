@@ -90,7 +90,7 @@ public class AnalyticDBUsageExample {
      */
     public void exampleSimilaritySearch() {
         // 准备查询向量
-        float[] queryEmbedding = new float[1536];
+        /*float[] queryEmbedding = new float[1536];
         Arrays.fill(queryEmbedding, 0.1f);
 
         // 执行相似度搜索
@@ -103,7 +103,7 @@ public class AnalyticDBUsageExample {
             log.info("  - Document ID: {}, 相似度: {:.4f}", 
                 result.getDocumentId(), result.getSimilarityScore());
             log.info("    内容: {}", result.getContent().substring(0, Math.min(50, result.getContent().length())));
-        }
+        }*/
     }
 
     /**
@@ -133,10 +133,10 @@ public class AnalyticDBUsageExample {
             vectorStore.hybridSearch(queryEmbedding, keyword, 3);
 
         log.info("示例5完成: 混合检索返回 {} 条结果", results.size());
-        for (AnalyticDBVectorStore.SearchResult result : results) {
+        /*for (AnalyticDBVectorStore.SearchResult result : results) {
             log.info("  - Document ID: {}, 向量相似度: {:.4f}", 
                 result.getDocumentId(), result.getSimilarityScore());
-        }
+        }*/
     }
 
     /**

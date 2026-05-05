@@ -102,6 +102,11 @@ public class AnalyticDBConfig {
     private int embeddingDimension;
 
     /**
+     * 阿里云 Endpoint
+     */
+    private String endpoint;
+
+    /**
      * 获取完整的 JDBC URL
      */
     public String getJdbcUrl() {

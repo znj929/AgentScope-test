@@ -67,14 +67,14 @@
         <dependency>
             <groupId>com.aliyun</groupId>
             <artifactId>gpdb20160503</artifactId>
-            <version>3.0.0</version>
+            <version>3.7.2</version>
         </dependency>
 
         <!-- Alibaba Cloud Credentials -->
         <dependency>
             <groupId>com.aliyun</groupId>
             <artifactId>credentials-java</artifactId>
-            <version>0.3.4</version>
+            <version>1.0.2</version>
         </dependency>
 
         <!-- OkHttp for HTTP Client -->
@@ -82,6 +82,13 @@
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>okhttp</artifactId>
             <version>4.12.0</version>
+        </dependency>
+
+        <!-- Gson for JSON processing -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
         </dependency>
     </dependencies>
 

@@ -10,6 +10,12 @@ CREATE TABLE IF NOT EXISTS knowledge_vectors (
     id SERIAL PRIMARY KEY,                          -- 主键 ID
     document_id VARCHAR(255) NOT NULL,              -- 文档唯一标识
     content TEXT NOT NULL,                          -- 文档内容
+    overseas_product_line VARCHAR(255),             -- 海外产品线（独立字段）
+    part_num VARCHAR(255),                          -- 产品编号
+    product_name VARCHAR(500),                      -- 产品名称
+    description TEXT,                               -- 产品描述
+    external_model VARCHAR(255),                    -- 外部型号
+    specification TEXT,                             -- 规格参数
     metadata JSONB,                                 -- 元数据（JSON 格式）
     embedding vector(1536),                         -- 向量字段，维度根据实际需求调整
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, -- 创建时间
@@ -38,9 +44,10 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_vectors_created_at
 ON knowledge_vectors (created_at);
 
 -- 6. 创建全文检索索引（用于混合检索）
+-- 使用 'simple' 配置（PostgreSQL 内置，无需额外插件）
 CREATE INDEX IF NOT EXISTS idx_knowledge_vectors_content_gin 
 ON knowledge_vectors 
-USING gin (to_tsvector('chinese', content));
+USING gin (to_tsvector('simple', content));
 
 -- 7. 添加注释
 COMMENT ON TABLE knowledge_vectors IS '知识库向量存储表';
@@ -70,8 +77,8 @@ COMMENT ON COLUMN knowledge_vectors.updated_at IS '记录更新时间';
 -- 10. 示例查询：混合检索（向量 + 关键词）
 -- SELECT id, document_id, content, metadata,
 --        1 - (embedding <=> '[0.1, 0.2, ...]'::vector) AS vector_score,
---        ts_rank(to_tsvector('chinese', content), plainto_tsquery('chinese', '关键词')) AS text_score
+--        ts_rank(to_tsvector('simple', content), plainto_tsquery('simple', 'keyword')) AS text_score
 -- FROM knowledge_vectors
--- WHERE to_tsvector('chinese', content) @@ plainto_tsquery('chinese', '关键词')
+-- WHERE to_tsvector('simple', content) @@ plainto_tsquery('simple', 'keyword')
 -- ORDER BY vector_score DESC, text_score DESC
 -- LIMIT 3;

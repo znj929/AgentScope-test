@@ -35,7 +35,7 @@
 
 **配置信息：**
 ```
-API地址: https://bailian.cn-beijing.aliyuncs.com
+API地址: https://dashscope.aliyuncs.com/compatible-mode/v1
 模型名称: qwen-plus
 流式输出: 已启用
 ```

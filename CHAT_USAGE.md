@@ -53,7 +53,7 @@
 ```properties
 # 阿里百炼配置（已配置）
 agentscope.openai.api-key=sk-5df11b3db1fd42c99b93f87cf728b1f8
-agentscope.openai.base-url=https://bailian.cn-beijing.aliyuncs.com
+agentscope.openai.base-url=https://dashscope.aliyuncs.com/compatible-mode/v1
 agentscope.openai.model-name=qwen-plus
 
 # AnalyticDB 配置（可选，用于知识库检索）

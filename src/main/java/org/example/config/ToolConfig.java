@@ -10,6 +10,7 @@ import org.example.knowledge.AnalyticDBConfig;
 import org.example.knowledge.AnalyticDBVectorStore;
 import org.example.tool.KnowledgeSearchTool;
 import org.example.tool.ProductTools;
+import org.example.tool.ProductOutputFormatter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -27,6 +28,9 @@ public  class  ToolConfig  {
     
     @Autowired
     private AliyunEmbeddingService embeddingService;
+    
+    @Autowired
+    private ProductTools productTools;
     
     @Bean
     public Toolkit merchantToolkit()  {
@@ -46,10 +50,24 @@ public  class  ToolConfig  {
         .group("admin")
         .apply();
 
-        toolkit.createToolGroup("product",  "商品相关工具",  true);
+        /*toolkit.createToolGroup("product",  "商品相关工具",  true);
         toolkit.registration()
         .tool(new ProductTools())
         .group("product")
+        .apply();*/
+        
+        // 创建产品过滤条件解析工具组
+        toolkit.createToolGroup("product", "产品相关工具", true);
+        toolkit.registration()
+        .tool(productTools)
+        .group("product")
+        .apply();
+        
+        // 创建产品输出格式化工具组（单独配置）
+        toolkit.createToolGroup("formatter", "产品输出格式化工具", true);
+        toolkit.registration()
+        .tool(new ProductOutputFormatter())
+        .group("formatter")
         .apply();
 
         // 创建知识库工具组

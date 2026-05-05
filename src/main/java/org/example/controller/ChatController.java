@@ -32,7 +32,7 @@ public class ChatController {
      * @param content   用户消息内容
      * @return 流式响应
      */
-    @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(value = "/stream", produces = MediaType.TEXT_PLAIN_VALUE)
     public Flux<String> chatStream(
             @RequestParam String userId,
             @RequestParam String sessionId,
@@ -50,7 +50,7 @@ public class ChatController {
      * @param content 用户消息内容
      * @return 流式响应
      */
-    @PostMapping(value = "/simple", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(value = "/simple", produces = MediaType.TEXT_PLAIN_VALUE)
     public Flux<String> simpleChat(@RequestBody String content) {
         String userId = "user_001";
         String sessionId = "session_" + System.currentTimeMillis();

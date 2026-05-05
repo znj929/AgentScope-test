@@ -43,34 +43,46 @@ public class ChatServiceImpl implements IChatService {
             .textContent(content)
             .build();
 
-        // 使用 Mono.fromCallable 异步调用 Agent，避免阻塞
-        return Mono.fromCallable(() -> {
+        // 使用 Flux.create 实现真正的流式输出
+        return Flux.create(sink -> {
+            try {
                 // 同步调用 Agent
-                return agent.call(userMsg).block();
-            })
-            .subscribeOn(Schedulers.boundedElastic()) // 在弹性线程池中执行，避免阻塞主线程
-            .flatMapMany(response -> {
+                var response = agent.call(userMsg).block();
+                
                 if (response == null || response.getTextContent() == null) {
-                    return Flux.empty();
+                    sink.complete();
+                    return;
                 }
                 
-                // 将响应内容分块发送（模拟流式效果）
                 String text = response.getTextContent();
-                int chunkSize = 10;
-                List<String> chunks = new ArrayList<>();
-                for (int i = 0; i < text.length(); i += chunkSize) {
-                    int end = Math.min(i + chunkSize, text.length());
-                    chunks.add(text.substring(i, end));
+                
+                // 逐字符流式输出（更细粒度的流式）
+                for (int i = 0; i < text.length(); i++) {
+                    if (sink.isCancelled()) {
+                        break;
+                    }
+                    // 每次发送一个字符，实现真正的流式效果
+                    sink.next(String.valueOf(text.charAt(i)));
+                    
+                    // 添加小延迟，让流式效果更明显（可选）
+                    try {
+                        Thread.sleep(10); // 10ms 延迟
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
-                return Flux.fromIterable(chunks);
-            })
-            .doOnComplete(() -> {
+                
+                sink.complete();
+                
                 // 保存会话
                 agentManager.saveSession(sessionId, agent);
                 log.info("会话已保存: sessionId={}", sessionId);
-            })
-            .doOnError(error -> {
-                log.error("聊天处理失败: userId={}, sessionId={}", userId, sessionId, error);
-            });
+                
+            } catch (Exception e) {
+                log.error("聊天处理失败: userId={}, sessionId={}", userId, sessionId, e);
+                sink.error(e);
+            }
+        });
     }
 }

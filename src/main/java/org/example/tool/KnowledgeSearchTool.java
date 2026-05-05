@@ -1,12 +1,15 @@
 package org.example.tool;
 
+import cn.hutool.json.JSONUtil;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
 import lombok.extern.slf4j.Slf4j;
 import org.example.knowledge.AliyunEmbeddingService;
 import org.example.knowledge.AnalyticDBVectorStore;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * AnalyticDB 知识库检索工具
@@ -52,7 +55,7 @@ public class KnowledgeSearchTool {
         
         try {
             // 使用阿里云 Embedding API 将文本转换为向量
-            float[] queryEmbedding = embeddingService.embed(query);
+            float[] queryEmbedding = embeddingService.embeddingText(query);
             
             // 执行向量相似度搜索
             List<AnalyticDBVectorStore.SearchResult> results = 
@@ -60,7 +63,7 @@ public class KnowledgeSearchTool {
             
             if (results == null || results.isEmpty()) {
                 log.info("未找到相关知识");
-                return "{\"results\": [], \"message\": \"未找到相关知识\"}";
+                return "{\"results\": [], \"message\": \"未找到相关知识，请尝试调整搜索条件或提供更多产品细节\"}";
             }
             
             // 格式化搜索结果
@@ -76,30 +79,78 @@ public class KnowledgeSearchTool {
     }
 
     /**
-     * 混合检索：结合向量和关键词搜索
+     * 混合检索：结合向量和关键词搜索（支持多关键词）
      *
-     * @param query   用户查询问题
-     * @param keyword 额外关键词（可选）
+     * @param query     用户查询问题
+     * @param keywords  额外关键词列表（可选，用逗号分隔多个关键词）
      * @return 相关文档内容
      */
-    @Tool(name = "knowledge_hybrid_search", description = "使用混合检索模式（向量+关键词）搜索知识库")
+    @Tool(name = "knowledge_hybrid_search", description = "使用混合检索模式（向量+关键词）搜索知识库，支持多关键词组合搜索")
     public String hybridSearchKnowledge(
             @ToolParam(name = "query", description = "要搜索的问题") String query,
-            @ToolParam(name = "keyword", description = "额外的关键词", required = false) String keyword) {
+            @ToolParam(name = "keywords", description = "额外的关键词列表，多个关键词用逗号分隔，如：'2MP,2.8mm,IP67'", required = false) String keywords) {
         
-        log.info("执行混合检索: query={}, keyword={}", query, keyword);
+        return hybridSearchKnowledge(query, keywords, null);
+    }
+    
+    /**
+     * 混合检索：结合向量和关键词搜索（支持多关键词和过滤条件）
+     *
+     * @param query     用户查询问题
+     * @param keywords  额外关键词列表（可选，用逗号分隔多个关键词）
+     * @param filters   过滤条件 JSON 字符串（可选），例如：'{"overseas_product_line": "IPC"}'
+     * @return 相关文档内容
+     */
+    @Tool(name = "knowledge_hybrid_search_with_filter", 
+          description = "使用混合检索模式（向量+关键词）搜索知识库，支持多关键词组合搜索和过滤条件。" +
+                       "当需要按产品线、类别等条件筛选时使用此工具。" +
+                       "filters 参数格式为 JSON 字符串，例如：'{\"overseas_product_line\": \"IPC\"}'")
+    public String hybridSearchKnowledge(
+            @ToolParam(name = "query", description = "要搜索的问题") String query,
+            @ToolParam(name = "keywords", description = "额外的关键词列表，多个关键词用逗号分隔，如：'2MP,2.8mm,IP67'", required = false) String keywords,
+            @ToolParam(name = "filters", description = "过滤条件 JSON 字符串，如：'{\"overseas_product_line\": \"IPC\"}'", required = false) String filters) {
+        
+        log.info("执行混合检索: query={}, keywords={}, filters={}", query, keywords, filters);
         
         try {
             // 使用阿里云 Embedding API 将文本转换为向量
-            float[] queryEmbedding = embeddingService.embed(query);
+            float[] queryEmbedding = embeddingService.embeddingText(query);
+            
+            // 处理关键词：如果提供了多个关键词，则构建复合搜索词
+            String searchKeyword = query; // 默认使用原始查询
+            if (keywords != null && !keywords.isEmpty()) {
+                // 将逗号分隔的关键词合并为搜索字符串
+                String[] keywordArray = keywords.split(",");
+                StringBuilder keywordBuilder = new StringBuilder(query);
+                for (String keyword : keywordArray) {
+                    String trimmedKeyword = keyword.trim();
+                    if (!trimmedKeyword.isEmpty()) {
+                        keywordBuilder.append(" ").append(trimmedKeyword);
+                    }
+                }
+                searchKeyword = keywordBuilder.toString();
+                log.info("构建复合搜索词: {}", searchKeyword);
+            }
+            
+            // 处理过滤条件
+            Map<String, Object> filterMap = null;
+            if (filters != null && !filters.isEmpty()) {
+                try {
+                    // 解析 JSON 字符串为 Map
+                    filterMap = JSONUtil.toBean(filters, Map.class);
+                    log.info("解析过滤条件: {}", filterMap);
+                } catch (Exception e) {
+                    log.error("解析过滤条件失败: {}", filters, e);
+                    // 如果解析失败，继续执行但不使用过滤条件
+                }
+            }
             
             // 执行混合检索
-            String searchKeyword = keyword != null && !keyword.isEmpty() ? keyword : query;
             List<AnalyticDBVectorStore.SearchResult> results = 
-                vectorStore.hybridSearch(queryEmbedding, searchKeyword, topK);
+                vectorStore.hybridSearch(queryEmbedding, searchKeyword, topK, filterMap);
             
             if (results == null || results.isEmpty()) {
-                return "{\"results\": [], \"message\": \"未找到相关知识\"}";
+                return "{\"results\": [], \"message\": \"未找到相关知识，请尝试调整搜索条件或提供更多产品细节\"}";
             }
             
             return formatSearchResults(results);
@@ -124,15 +175,13 @@ public class KnowledgeSearchTool {
             }
             
             json.append("{")
-                .append("\"document_id\":\"").append(escapeJson(result.getDocumentId())).append("\",")
+                .append("\"part_num\":\"").append(escapeJson(result.getPartNum())).append("\",")
+                .append("\"product_name\":\"").append(escapeJson(result.getProductName())).append("\",")
+                .append("\"sales_status\":\"").append(escapeJson(result.getSalesStatus())).append("\",")
                 .append("\"content\":\"").append(escapeJson(result.getContent())).append("\",")
                 .append("\"similarity_score\":").append(result.getSimilarityScore());
             
-            if (result.getMetadata() != null && !result.getMetadata().isEmpty()) {
-                json.append(",\"metadata\":{");
-                // 简化处理：实际应使用 JSON 库序列化
-                json.append("}");
-            }
+
             
             json.append("}");
         }

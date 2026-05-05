@@ -267,7 +267,7 @@
                 botMessageDiv.appendChild(messageContent);
                 document.getElementById('chatMessages').appendChild(botMessageDiv);
                 
-                // 逐步显示响应
+                // 逐步显示响应（纯文本流）
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) break;
