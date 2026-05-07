@@ -51,12 +51,19 @@ public class ChatController {
      * @return 流式响应
      */
     @PostMapping(value = "/simple", produces = MediaType.TEXT_PLAIN_VALUE)
-    public Flux<String> simpleChat(@RequestBody String content) {
-        String userId = "user_001";
-        String sessionId = "session_" + System.currentTimeMillis();
-        String datasetId = "default";
+    public Flux<String> simpleChat(
+            @RequestParam(required = false, defaultValue = "user_001", name = "userId") String userId,
+            @RequestParam(required = false, name = "sessionId") String sessionId,
+            @RequestParam(required = false, defaultValue = "default", name = "datasetId") String datasetId,
+            @RequestBody String content) {
         
-        log.info("收到简化聊天请求: sessionId={}", sessionId);
+        // 如果没有提供sessionId，则生成一个新的
+        if (sessionId == null || sessionId.isEmpty()) {
+            sessionId = "session_" + System.currentTimeMillis();
+            log.info("生成新会话ID: sessionId={}", sessionId);
+        } else {
+            log.info("使用现有会话ID: sessionId={}", sessionId);
+        }
         
         return chatService.chatStream(userId, sessionId, datasetId, content);
     }

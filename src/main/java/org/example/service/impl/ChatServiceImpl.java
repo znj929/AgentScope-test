@@ -75,9 +75,9 @@ public class ChatServiceImpl implements IChatService {
                 
                 sink.complete();
                 
-                // 保存会话
+                // 保存会话 - 确保在每次对话后都保存上下文
                 agentManager.saveSession(sessionId, agent);
-                log.info("会话已保存: sessionId={}", sessionId);
+                log.info("会话已保存: sessionId={}, userId={}", sessionId, userId);
                 
             } catch (Exception e) {
                 log.error("聊天处理失败: userId={}, sessionId={}", userId, sessionId, e);

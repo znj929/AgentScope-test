@@ -46,6 +46,7 @@ public class AgentManager {
             ReActAgent agent = createAgent(datasetId);
             // 尝试加载已有会话
             agent.loadIfExists(session, sessionId);
+            log.info("创建新Agent并加载会话: cacheKey={}, sessionId={}", cacheKey, sessionId);
             return agent;
         });
     }

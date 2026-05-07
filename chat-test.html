@@ -181,10 +181,12 @@
         <div class="chat-header">
             <h1>🤖 AgentScope 智能助手</h1>
             <p>基于阿里百炼 Qwen 模型的流式对话</p>
+            <button onclick="resetSession()" style="margin-top: 10px; padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">🔄 开始新对话</button>
         </div>
         
         <div class="status-bar" id="statusBar">
-            准备就绪 | 会话ID: <span id="sessionId"></span>
+            <span style="font-weight: bold;">💬 会话ID:</span> <span id="sessionId" style="color: #667eea; font-family: monospace;"></span>
+            <span style="margin-left: 20px; color: #856404;">⚠️ 多轮对话时请保持此ID不变，点击“开始新对话”可重置</span>
         </div>
         
         <div class="chat-messages" id="chatMessages">
@@ -211,6 +213,8 @@
     <script>
         const API_URL = 'http://localhost:8080/api/chat/simple';
         let sessionId = 'session_' + Date.now();
+        let userId = 'user_001';
+        let datasetId = 'default';
         let isWaiting = false;
         
         // 显示会话ID
@@ -229,6 +233,10 @@
             
             if (!message || isWaiting) return;
             
+            console.log('发送消息:', message);
+            console.log('当前会话ID:', sessionId);
+            console.log('请求URL:', `${API_URL}?userId=${userId}&sessionId=${sessionId}&datasetId=${datasetId}`);
+            
             // 添加用户消息
             addMessage(message, 'user');
             input.value = '';
@@ -239,7 +247,10 @@
             document.getElementById('sendButton').disabled = true;
             
             try {
-                const response = await fetch(API_URL, {
+                // 构建带参数的URL，保持会话ID
+                const url = `${API_URL}?userId=${encodeURIComponent(userId)}&sessionId=${encodeURIComponent(sessionId)}&datasetId=${encodeURIComponent(datasetId)}`;
+                
+                const response = await fetch(url, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -279,6 +290,8 @@
                     // 滚动到底部
                     scrollToBottom();
                 }
+                
+                console.log('收到响应:', fullResponse.substring(0, 100) + '...');
                 
             } catch (error) {
                 console.error('Error:', error);
@@ -332,6 +345,21 @@
         function scrollToBottom() {
             const messagesDiv = document.getElementById('chatMessages');
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        // 重置会话，开始新对话
+        function resetSession() {
+            sessionId = 'session_' + Date.now();
+            document.getElementById('sessionId').textContent = sessionId;
+            
+            // 清空聊天记录
+            const messagesDiv = document.getElementById('chatMessages');
+            messagesDiv.innerHTML = '';
+            
+            // 添加欢迎消息
+            addMessage('你好！我是安防行业产品助手。我可以帮您查询和了解安防相关产品，如监控摄像头、门禁系统、报警器等。请问有什么可以帮助您的吗？', 'bot');
+            
+            console.log('会话已重置: ' + sessionId);
         }
     </script>
 </body>
