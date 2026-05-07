@@ -6,6 +6,8 @@ import io.agentscope.core.tool.ToolParam;
 import lombok.extern.slf4j.Slf4j;
 import org.example.knowledge.AliyunEmbeddingService;
 import org.example.knowledge.AnalyticDBVectorStore;
+import org.example.knowledge.QueryAnalyzer;
+import org.example.knowledge.WeightConfig;
 
 import java.util.HashMap;
 import java.util.List;
@@ -145,9 +147,14 @@ public class KnowledgeSearchTool {
                 }
             }
             
-            // 执行混合检索
+            // 使用动态权重分析器确定最优权重配置
+            WeightConfig weightConfig = QueryAnalyzer.analyzeQuery(query, keywords);
+            log.info("动态权重配置: vectorWeight={}, textWeight={}, queryType={}", 
+                    weightConfig.getVectorWeight(), weightConfig.getTextWeight(), weightConfig.getQueryType());
+            
+            // 执行混合检索（使用动态权重）
             List<AnalyticDBVectorStore.SearchResult> results = 
-                vectorStore.hybridSearch(queryEmbedding, searchKeyword, topK, filterMap);
+                vectorStore.hybridSearch(queryEmbedding, searchKeyword, topK, filterMap, true, weightConfig);
             
             if (results == null || results.isEmpty()) {
                 return "{\"results\": [], \"message\": \"未找到相关知识，请尝试调整搜索条件或提供更多产品细节\"}";

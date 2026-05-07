@@ -256,6 +256,24 @@ public class AnalyticDBVectorStore {
      * @return 搜索结果列表
      */
     public List<SearchResult> hybridSearch(float[] queryEmbedding, String keyword, int topK, Map<String, Object> filters, boolean enableSalesStatusBoost) {
+        // 使用默认权重配置
+        WeightConfig weightConfig = WeightConfig.defaultConfig();
+        return hybridSearch(queryEmbedding, keyword, topK, filters, enableSalesStatusBoost, weightConfig);
+    }
+    
+    /**
+     * 混合检索(向量 + 关键词 + 过滤条件 + 销售状态排序 + 自定义权重)
+     *
+     * @param queryEmbedding 查询向量
+     * @param keyword        关键词（支持多个关键词，用空格分隔）
+     * @param topK           返回结果数量
+     * @param filters        过滤条件 Map，key 为字段名，value 为字段值
+     *                       例如：{"overseas_product_line": "IPC"}
+     * @param enableSalesStatusBoost 是否启用销售状态优先级排序
+     * @param weightConfig   权重配置（向量权重和文本权重）
+     * @return 搜索结果列表
+     */
+    public List<SearchResult> hybridSearch(float[] queryEmbedding, String keyword, int topK, Map<String, Object> filters, boolean enableSalesStatusBoost, WeightConfig weightConfig) {
         String vectorStr = arrayToVectorString(queryEmbedding);
             
         // 使用 zh_cn 中文分词配置(已安装在数据库中)
@@ -264,6 +282,14 @@ public class AnalyticDBVectorStore {
         // 处理多个关键词：将空格分隔的关键词转换为 PostgreSQL 全文检索格式
         // 使用 OR 逻辑（|），只要匹配部分关键词即可，更适合推荐场景
         String processedKeyword = processKeywordsForFullTextSearch(keyword);
+        
+        // 获取权重配置
+        double vectorWeight = weightConfig != null ? weightConfig.getVectorWeight() : 0.6;
+        double textWeight = weightConfig != null ? weightConfig.getTextWeight() : 0.4;
+        
+        log.info("使用动态权重配置: vectorWeight={}, textWeight={}, queryType={}", 
+                vectorWeight, textWeight, 
+                weightConfig != null ? weightConfig.getQueryType() : "DEFAULT");
         
         // 构建 WHERE 条件
         StringBuilder whereClause = new StringBuilder();
@@ -311,13 +337,13 @@ public class AnalyticDBVectorStore {
                 "END AS sales_status_weight";
         }
             
-        // 使用向量相似度 + 全文检索（OR 逻辑）+ 可选的销售状态权重
+        // 使用向量相似度 + 全文检索（OR 逻辑）+ 可选的销售状态权重 + 动态权重
         String selectFields = String.format(
             "SELECT id, part_num, product_name, description, external_model, specification, overseas_product_line, overseas_series, content, sales_status" +
             ", 1 - (vector <=> ?::vector) AS vector_score" +
             ", ts_rank(to_tsvector('%s', content), to_tsquery('%s', ?)) AS text_score" +
-            ", (1 - (vector <=> ?::vector)) * 0.6 + ts_rank(to_tsvector('%s', content), to_tsquery('%s', ?)) * 0.4 AS base_score",
-            tsConfig, tsConfig, tsConfig, tsConfig
+            ", (1 - (vector <=> ?::vector)) * %.2f + ts_rank(to_tsvector('%s', content), to_tsquery('%s', ?)) * %.2f AS base_score",
+            tsConfig, tsConfig, vectorWeight, tsConfig, tsConfig, textWeight
         );
         
         // 如果启用销售状态排序，添加权重字段和综合评分计算
@@ -328,12 +354,16 @@ public class AnalyticDBVectorStore {
             finalSelect = selectFields + salesStatusWeight + " FROM " + analyticDBConfig.getTableName();
             // 综合评分 = 基础评分 * 0.8 + 销售状态权重 * 0.2
             // 注意：PostgreSQL 不允许在 ORDER BY 中直接引用 SELECT 列表中的别名，需要展开表达式
-            orderByClause = "ORDER BY (((1 - (vector <=> ?::vector)) * 0.6 + ts_rank(to_tsvector('" + tsConfig + "', content), to_tsquery('" + tsConfig + "', ?)) * 0.4) * 0.8 + " +
+            orderByClause = "ORDER BY (((1 - (vector <=> ?::vector)) * " + String.format("%.2f", vectorWeight) + 
+                " + ts_rank(to_tsvector('" + tsConfig + "', content), to_tsquery('" + tsConfig + "', ?)) * " + 
+                String.format("%.2f", textWeight) + ") * 0.8 + " +
                 "(CASE WHEN sales_status = 'Normal' THEN 1.0 WHEN sales_status = 'Delisting Warning' THEN 0.6 WHEN sales_status = 'Danger' THEN 0.2 ELSE 0.5 END) * 0.2) DESC";
             log.info("启用销售状态优先级排序: Normal(1.0) > Delisting Warning(0.6) > Danger(0.2)");
         } else {
             finalSelect = selectFields + " FROM " + analyticDBConfig.getTableName();
-            orderByClause = "ORDER BY ((1 - (vector <=> ?::vector)) * 0.6 + ts_rank(to_tsvector('" + tsConfig + "', content), to_tsquery('" + tsConfig + "', ?)) * 0.4) DESC";
+            orderByClause = "ORDER BY ((1 - (vector <=> ?::vector)) * " + String.format("%.2f", vectorWeight) + 
+                " + ts_rank(to_tsvector('" + tsConfig + "', content), to_tsquery('" + tsConfig + "', ?)) * " + 
+                String.format("%.2f", textWeight) + ") DESC";
         }
             
         String sql = finalSelect + " " +
