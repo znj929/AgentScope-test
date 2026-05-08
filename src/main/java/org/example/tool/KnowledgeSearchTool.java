@@ -5,6 +5,7 @@ import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
 import lombok.extern.slf4j.Slf4j;
 import org.example.knowledge.AliyunEmbeddingService;
+import org.example.knowledge.AliyunRerankService;
 import org.example.knowledge.AnalyticDBVectorStore;
 import org.example.knowledge.QueryAnalyzer;
 import org.example.knowledge.WeightConfig;
@@ -22,25 +23,37 @@ public class KnowledgeSearchTool {
 
     private final AnalyticDBVectorStore vectorStore;
     private final AliyunEmbeddingService embeddingService;
+    private final AliyunRerankService rerankService;
     private final int topK;
     private final double scoreThreshold;
+    private final int candidateCount;
+    private final boolean enableRerank;
 
     /**
      * 构造函数
      *
      * @param vectorStore       AnalyticDB 向量存储
      * @param embeddingService  Embedding 服务
+     * @param rerankService     Rerank 服务（可选）
      * @param topK              返回最相关的 K 个结果
      * @param scoreThreshold    相似度阈值（0-1）
+     * @param candidateCount    候选集数量（用于两阶段检索）
+     * @param enableRerank      是否启用 Rerank
      */
     public KnowledgeSearchTool(AnalyticDBVectorStore vectorStore, 
                               AliyunEmbeddingService embeddingService,
+                              AliyunRerankService rerankService,
                               int topK, 
-                              double scoreThreshold) {
+                              double scoreThreshold,
+                              int candidateCount,
+                              boolean enableRerank) {
         this.vectorStore = vectorStore;
         this.embeddingService = embeddingService ;
+        this.rerankService = rerankService;
         this.topK = topK;
         this.scoreThreshold = scoreThreshold;
+        this.candidateCount = candidateCount;
+        this.enableRerank = enableRerank;
     }
 
     /**
@@ -152,9 +165,26 @@ public class KnowledgeSearchTool {
             log.info("动态权重配置: vectorWeight={}, textWeight={}, queryType={}", 
                     weightConfig.getVectorWeight(), weightConfig.getTextWeight(), weightConfig.getQueryType());
             
-            // 执行混合检索（使用动态权重）
-            List<AnalyticDBVectorStore.SearchResult> results = 
-                vectorStore.hybridSearch(queryEmbedding, searchKeyword, topK, filterMap, true, weightConfig);
+            // 执行检索（根据配置选择是否启用 Rerank）
+            List<AnalyticDBVectorStore.SearchResult> results;
+            
+            if (enableRerank && rerankService != null) {
+                // 两阶段检索：召回 + 重排序
+                log.info("启用 Rerank 两阶段检索 - 候选集: {}, 最终返回: {}", candidateCount, topK);
+                results = vectorStore.twoStageSearchWithRerank(
+                    queryEmbedding, 
+                    searchKeyword, 
+                    topK,
+                    candidateCount,
+                    filterMap,
+                    rerankService,
+                    query  // 使用原始查询文本进行 Rerank
+                );
+            } else {
+                // 传统单阶段检索
+                log.info("使用传统单阶段检索");
+                results = vectorStore.hybridSearch(queryEmbedding, searchKeyword, topK, filterMap, true, weightConfig);
+            }
             
             if (results == null || results.isEmpty()) {
                 return "{\"results\": [], \"message\": \"未找到相关知识，请尝试调整搜索条件或提供更多产品细节\"}";

@@ -5,7 +5,9 @@ import io.agentscope.core.tool.Toolkit;
 import io.agentscope.core.tool.ToolkitConfig;
 import io.agentscope.core.tool.file.ReadFileTool;
 import io.agentscope.core.tool.file.WriteFileTool;
+import lombok.extern.slf4j.Slf4j;
 import org.example.knowledge.AliyunEmbeddingService;
+import org.example.knowledge.AliyunRerankService;
 import org.example.knowledge.AnalyticDBConfig;
 import org.example.knowledge.AnalyticDBVectorStore;
 import org.example.tool.KnowledgeSearchTool;
@@ -17,6 +19,7 @@ import org.springframework.context.annotation.Configuration;
 
 import java.time.Duration;
 
+@Slf4j
 @Configuration
 public  class  ToolConfig  {
     
@@ -28,6 +31,9 @@ public  class  ToolConfig  {
     
     @Autowired
     private AliyunEmbeddingService embeddingService;
+    
+    @Autowired(required = false)
+    private AliyunRerankService rerankService;
     
     @Autowired
     private ProductTools productTools;
@@ -72,12 +78,25 @@ public  class  ToolConfig  {
 
         // 创建知识库工具组
         toolkit.createToolGroup("knowledge", "知识库检索工具", true);
+        
+        // 获取 Rerank 配置
+        boolean enableRerank = analyticDBConfig.getEnableRerank() != null ? 
+            analyticDBConfig.getEnableRerank() : false;
+        int candidateCount = analyticDBConfig.getRerankCandidateCount() != null ? 
+            analyticDBConfig.getRerankCandidateCount() : 20;
+        
+        log.info("初始化知识库检索工具 - TopK: {}, ScoreThreshold: {}, EnableRerank: {}, CandidateCount: {}",
+            analyticDBConfig.getTopK(), analyticDBConfig.getScoreThreshold(), enableRerank, candidateCount);
+        
         toolkit.registration()
         .tool(new KnowledgeSearchTool(
             vectorStore, 
             embeddingService,
+            rerankService,  // Rerank 服务（可选）
             analyticDBConfig.getTopK(), 
-            analyticDBConfig.getScoreThreshold()
+            analyticDBConfig.getScoreThreshold(),
+            candidateCount,
+            enableRerank
         ))
         .group("knowledge")
         .apply();

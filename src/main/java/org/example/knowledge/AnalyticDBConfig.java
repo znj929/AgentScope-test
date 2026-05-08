@@ -107,6 +107,26 @@ public class AnalyticDBConfig {
     private String endpoint;
 
     /**
+     * Rerank 模型名称，默认 qwen3-rerank
+     */
+    private String rerankModel;
+
+    /**
+     * Rerank 返回的 Top K 数量，默认 5
+     */
+    private Integer rerankTopK;
+
+    /**
+     * 是否启用 Rerank，默认 true
+     */
+    private Boolean enableRerank;
+
+    /**
+     * Rerank 候选集数量（第一阶段召回的数量），默认 20
+     */
+    private Integer rerankCandidateCount;
+
+    /**
      * 获取完整的 JDBC URL
      */
     public String getJdbcUrl() {

@@ -7,6 +7,7 @@ import jakarta.annotation.PostConstruct;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * AnalyticDB PostgreSQL 向量库操作工具类
@@ -293,6 +294,7 @@ public class AnalyticDBVectorStore {
         
         // 构建 WHERE 条件
         StringBuilder whereClause = new StringBuilder();
+        // 使用 to_tsquery 支持 OR 逻辑（关键词用 | 连接）
         whereClause.append("to_tsvector('" + tsConfig + "', content) @@ to_tsquery('" + tsConfig + "', ?)");
         
         // 如果有过滤条件，添加到 WHERE 子句
@@ -452,8 +454,8 @@ public class AnalyticDBVectorStore {
             return "";
         }
         
-        // 按空格分割关键词
-        String[] keywords = keyword.trim().split("\\s+");
+        // 先按逗号、顿号、空格分割关键词（支持多种分隔符）
+        String[] keywords = keyword.trim().split("[,、\\s]+");
         
         // 过滤空字符串并转义特殊字符
         List<String> validKeywords = new ArrayList<>();
@@ -462,8 +464,15 @@ public class AnalyticDBVectorStore {
             if (!trimmed.isEmpty()) {
                 // 转义 PostgreSQL 全文检索特殊字符
                 String escaped = escapeFullTextSearchKeyword(trimmed);
-                validKeywords.add(escaped);
+                // 只添加非空的关键词
+                if (!escaped.isEmpty()) {
+                    validKeywords.add(escaped);
+                }
             }
+        }
+        
+        if (validKeywords.isEmpty()) {
+            return "";
         }
         
         // 用 "|" 连接，表示 OR 关系（匹配任一关键词即可）
@@ -473,11 +482,37 @@ public class AnalyticDBVectorStore {
 
     /**
      * 转义 PostgreSQL 全文检索特殊字符
+     * to_tsquery 需要严格的语法，特殊字符必须转义或移除
      */
     private String escapeFullTextSearchKeyword(String keyword) {
-        // PostgreSQL 全文检索特殊字符: & | ! ( ) < > : *
-        // 这些字符需要转义或移除
-        return keyword.replaceAll("[&|!()<>:*]", " ");
+        if (keyword == null || keyword.isEmpty()) {
+            return "";
+        }
+        
+        // PostgreSQL tsquery 特殊字符: & | ! ( ) < > : * \ " '
+        // 策略：
+        // 1. 保留字母、数字、中文、常见标点（如小数点、连字符）
+        // 2. 移除或替换 tsquery 特殊字符
+        // 3. 对于包含空格的词（如 "16 9"），用连字符连接
+        
+        String result = keyword;
+        
+        // 将空格替换为连字符（避免被当作分隔符）
+        result = result.replaceAll("\\s+", "-");
+        
+        // 移除 tsquery 特殊字符，但保留常用符号
+        // 保留：字母、数字、中文、小数点、连字符、下划线、百分号、度数符号等
+        result = result.replaceAll("[^a-zA-Z0-9\\u4e00-\\u9fa5.\\-%_‰℃°]", "");
+        
+        // 如果结果为空，返回空字符串
+        if (result.isEmpty()) {
+            return "";
+        }
+        
+        // 确保不以特殊字符开头或结尾
+        result = result.replaceAll("^[.-]+", "").replaceAll("[.-]+$", "");
+        
+        return result;
     }
 
     /**
@@ -753,6 +788,91 @@ public class AnalyticDBVectorStore {
         } catch (Exception e) {
             log.error("向量更新失败: documentId={}", documentId, e);
             throw new RuntimeException("向量更新失败", e);
+        }
+    }
+
+    /**
+     * 两阶段检索：召回 + 重排序（使用 Reranker）
+     * 第一阶段：使用混合检索召回候选集（较大的数量）
+     * 第二阶段：使用 Reranker 对候选集进行重排序，返回最相关的 Top K 结果
+     *
+     * @param queryEmbedding 查询向量
+     * @param keyword        关键词（支持多个关键词，用空格分隔）
+     * @param topK           最终返回结果数量
+     * @param candidateCount 候选集数量（第一阶段召回的数量）
+     * @param filters        过滤条件 Map
+     * @param rerankService  Rerank 服务
+     * @param queryText      原始查询文本（用于 Rerank）
+     * @return 重排序后的搜索结果列表
+     */
+    public List<SearchResult> twoStageSearchWithRerank(
+            float[] queryEmbedding, 
+            String keyword, 
+            int topK, 
+            int candidateCount,
+            Map<String, Object> filters,
+            AliyunRerankService rerankService,
+            String queryText) {
+        
+        log.info("开始两阶段检索 - 查询: {}, 候选集: {}, 最终返回: {}", queryText, candidateCount, topK);
+        
+        // 第一阶段：召回候选集
+        List<SearchResult> candidates = hybridSearch(
+            queryEmbedding, 
+            keyword, 
+            candidateCount, 
+            filters, 
+            true,  // 启用销售状态排序
+            WeightConfig.defaultConfig()
+        );
+        
+        if (candidates == null || candidates.isEmpty()) {
+            log.warn("第一阶段召回结果为空");
+            return new ArrayList<>();
+        }
+        
+        log.info("第一阶段召回完成 - 候选集数量: {}", candidates.size());
+        
+        // 如果没有 Rerank 服务或候选集数量小于等于 topK，直接返回
+        if (rerankService == null || candidates.size() <= topK) {
+            log.info("跳过 Rerank 阶段，直接返回前 {} 个结果", Math.min(topK, candidates.size()));
+            return candidates.subList(0, Math.min(topK, candidates.size()));
+        }
+        
+        // 第二阶段：重排序
+        try {
+            // 提取候选集的文档内容
+            List<String> documents = candidates.stream()
+                .map(SearchResult::getContent)
+                .collect(Collectors.toList());
+            
+            // 调用 Rerank 服务
+            List<AliyunRerankService.RerankResult> rerankedResults = 
+                rerankService.rerank(queryText, documents, topK);
+            
+            if (rerankedResults == null || rerankedResults.isEmpty()) {
+                log.warn("Rerank 结果为空，返回原始候选集的前 {} 个", topK);
+                return candidates.subList(0, Math.min(topK, candidates.size()));
+            }
+            
+            // 根据 Rerank 结果的索引，从原始候选集中获取对应的 SearchResult
+            List<SearchResult> finalResults = new ArrayList<>();
+            for (AliyunRerankService.RerankResult rerankResult : rerankedResults) {
+                int index = rerankResult.getIndex();
+                if (index >= 0 && index < candidates.size()) {
+                    SearchResult originalResult = candidates.get(index);
+                    // 更新相似度分数为 Rerank 分数
+                    originalResult.setSimilarityScore(rerankResult.getRelevanceScore());
+                    finalResults.add(originalResult);
+                }
+            }
+            
+            log.info("两阶段检索完成 - 最终返回 {} 个结果", finalResults.size());
+            return finalResults;
+            
+        } catch (Exception e) {
+            log.error("Rerank 阶段失败，降级返回原始候选集的前 {} 个结果", topK, e);
+            return candidates.subList(0, Math.min(topK, candidates.size()));
         }
     }
 
