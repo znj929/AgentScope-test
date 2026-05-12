@@ -84,19 +84,23 @@ public  class  ToolConfig  {
             analyticDBConfig.getEnableRerank() : false;
         int candidateCount = analyticDBConfig.getRerankCandidateCount() != null ? 
             analyticDBConfig.getRerankCandidateCount() : 20;
+        boolean enableMultiPathRecall = analyticDBConfig.getEnableMultiPathRecall() != null ?
+            analyticDBConfig.getEnableMultiPathRecall() : false;
         
-        log.info("初始化知识库检索工具 - TopK: {}, ScoreThreshold: {}, EnableRerank: {}, CandidateCount: {}",
-            analyticDBConfig.getTopK(), analyticDBConfig.getScoreThreshold(), enableRerank, candidateCount);
+        log.info("初始化知识库检索工具 - TopK: {}, ScoreThreshold: {}, EnableRerank: {}, CandidateCount: {}, EnableMultiPathRecall: {}",
+            analyticDBConfig.getTopK(), analyticDBConfig.getScoreThreshold(), enableRerank, candidateCount, enableMultiPathRecall);
         
         toolkit.registration()
         .tool(new KnowledgeSearchTool(
             vectorStore, 
             embeddingService,
             rerankService,  // Rerank 服务（可选）
+            productTools,   // 产品工具（用于智能解析过滤条件）
             analyticDBConfig.getTopK(), 
             analyticDBConfig.getScoreThreshold(),
             candidateCount,
-            enableRerank
+            enableRerank,
+            enableMultiPathRecall  // 是否启用多路召回融合
         ))
         .group("knowledge")
         .apply();

@@ -127,6 +127,11 @@ public class AnalyticDBConfig {
     private Integer rerankCandidateCount;
 
     /**
+     * 是否启用多路召回融合，默认 false
+     */
+    private Boolean enableMultiPathRecall;
+
+    /**
      * 获取完整的 JDBC URL
      */
     public String getJdbcUrl() {

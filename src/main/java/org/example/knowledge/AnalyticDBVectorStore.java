@@ -20,6 +20,20 @@ public class AnalyticDBVectorStore {
     private JdbcTemplate jdbcTemplate;
 
     /**
+     * 获取配置对象（供 MultiPathRecallFusion 使用）
+     */
+    public AnalyticDBConfig getAnalyticDBConfig() {
+        return analyticDBConfig;
+    }
+    
+    /**
+     * 获取 JdbcTemplate（供 MultiPathRecallFusion 使用）
+     */
+    public JdbcTemplate getJdbcTemplate() {
+        return jdbcTemplate;
+    }
+
+    /**
      * 构造函数
      *
      * @param config AnalyticDB 配置

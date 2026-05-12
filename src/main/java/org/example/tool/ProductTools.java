@@ -10,7 +10,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -64,19 +66,24 @@ public class ProductTools {
     /**
      * 从用户问题中智能解析过滤条件
      * 
-     * 此工具会分析用户问题，识别产品类型并映射到对应的产品线。
-     * 支持识别常见的产品关键词，如：摄像机、录像机、门禁等。
+     * 此工具会分析用户问题，识别：
+     * - 产品线 (overseas_product_line)
+     * - 产品系列 (overseas_series)
+     * - 产品编号/料号 (part_num)
+     * - 产品型号 (external_model)
+     * - 技术规格关键词 (specifications)
      *
      * @param query 用户查询问题
-     * @return 解析出的过滤条件，JSON 格式
+     * @return 解析出的过滤条件和关键词，JSON 格式
      */
     @Tool(name = "parse_filter_conditions", 
-          description = "从用户问题中智能解析过滤条件，识别产品线(overseas_product_line)和产品系列(overseas_series)。" +
-                       "使用 AI 模型理解用户意图，准确提取产品类型和系列信息。" +
-                       "支持的系列格式：1 Series, 2 Series, 3 Series 等数字系列。" +
-                       "例如：'推荐一款IPC摄像机' → {\"overseas_product_line\": \"IPC\"}" +
-                       "例如：'找一款NVR' → {\"overseas_product_line\": \"NVR\"}" +
-                       "例如：'2 Series的摄像机' → {\"overseas_product_line\": \"IPC\", \"overseas_series\": \"2 Series\"}")
+          description = "从用户问题中智能解析过滤条件，识别产品线、产品系列、产品编号、型号和技术规格。" +
+                       "使用 AI 模型理解用户意图，准确提取产品信息。" +
+                       "支持的字段：overseas_product_line, overseas_series, part_num, external_model, specifications。" +
+                       "例如：'推荐一款IPC-HFW1230摄像机，要2MP和IP67防护' → " +
+                       "{\"filters\": {\"overseas_product_line\": \"IPC\", \"external_model\": \"IPC-HFW1230\"}, \"keywords\": [\"2MP\", \"IP67\"]}" +
+                       "例如：'查找料号1.2.3.4的产品' → {\"filters\": {\"part_num\": \"1.2.3.4\"}}" +
+                       "例如：'2 Series的NVR录像机' → {\"filters\": {\"overseas_product_line\": \"NVR\", \"overseas_series\": \"2 Series\"}}")
     public String parseFilterConditions(
             @ToolParam(name = "query", description = "用户的查询问题") String query) {
         
@@ -181,8 +188,11 @@ public class ProductTools {
         prompt.append("你是一个专业的产品过滤条件解析助手。你的任务是从用户的问题中提取产品过滤条件。\n\n");
         
         prompt.append("## 需要提取的字段：\n");
-        prompt.append("1. overseas_product_line: 产品线类型\n");
-        prompt.append("2. overseas_series: 产品系列（仅支持数字系列格式，如 '1 Series', '2 Series' 等）\n\n");
+        prompt.append("1. overseas_product_line: 产品线类型（从下方列表选择）\n");
+        prompt.append("2. overseas_series: 产品系列（仅支持数字系列格式，如 '1 Series', '2 Series' 等）\n");
+        prompt.append("3. part_num: 产品编号/料号（格式如：1.2.3.4 或 1.2.3）\n");
+        prompt.append("4. external_model: 产品外部型号（格式如：IPC-HFW1230, NVR4108 等字母数字组合）\n");
+        prompt.append("5. specifications: 技术规格关键词数组（如分辨率、防护等级、焦距等，如 [\"2MP\", \"IP67\", \"2.8mm\"]）\n\n");
         
         prompt.append("## 可选的产品线列表：\n");
         for (String line : OVERSEAS_PRODUCT_LINES) {
@@ -193,22 +203,40 @@ public class ProductTools {
         prompt.append("- 只识别数字系列格式，如：1 Series, 2 Series, 3 Series 等\n");
         prompt.append("- 用户可能说 '1系列'、'2 series'、'第3系列' 等，都需要转换为 'X Series' 格式\n\n");
         
+        prompt.append("## 产品编号识别规则：\n");
+        prompt.append("- 格式：数字.数字.数字 或 数字.数字.数字.数字（如 1.2.3, 1.2.3.4）\n");
+        prompt.append("- 示例：'料号1.2.3.4' → part_num: \"1.2.3.4\"\n\n");
+        
+        prompt.append("## 产品型号识别规则：\n");
+        prompt.append("- 格式：字母+连字符+字母数字组合（如 IPC-HFW1230, NVR4108-HDS2）\n");
+        prompt.append("- 示例：'IPC-HFW1230摄像机' → external_model: \"IPC-HFW1230\"\n\n");
+        
+        prompt.append("## 技术规格识别规则：\n");
+        prompt.append("- 分辨率：2MP, 4MP, 5MP, 8MP, 4K 等\n");
+        prompt.append("- 防护等级：IP67, IP66, IP54 等\n");
+        prompt.append("- 焦距：2.8mm, 3.6mm, 6mm 等\n");
+        prompt.append("- 编码格式：H.265, H.264 等\n");
+        prompt.append("- 其他：POE, 夜视, 红外, 变焦, 广角等\n\n");
+        
         prompt.append("## 输出格式：\n");
         prompt.append("必须输出严格的 JSON 格式，示例：\n");
         prompt.append("```json\n");
         prompt.append("{\n");
         prompt.append("  \"filters\": {\n");
         prompt.append("    \"overseas_product_line\": \"IPC\",\n");
-        prompt.append("    \"overseas_series\": \"2 Series\"\n");
-        prompt.append("  }\n");
+        prompt.append("    \"external_model\": \"IPC-HFW1230\"\n");
+        prompt.append("  },\n");
+        prompt.append("  \"keywords\": [\"2MP\", \"IP67\", \"2.8mm\"]\n");
         prompt.append("}\n");
         prompt.append("```\n\n");
         
         prompt.append("## 注意事项：\n");
-        prompt.append("1. 如果无法识别某个字段，不要包含该字段\n");
-        prompt.append("2. 产品线必须从上述列表中选择最匹配的\n");
-        prompt.append("3. 系列必须是 'X Series' 格式（X 为数字）\n");
-        prompt.append("4. 只输出 JSON，不要有其他解释文字\n");
+        prompt.append("1. filters 中的字段只有在明确识别到时才包含，不要包含空值\n");
+        prompt.append("2. keywords 数组包含所有技术规格关键词，用逗号分隔\n");
+        prompt.append("3. 产品线必须从上述列表中选择最匹配的\n");
+        prompt.append("4. 系列必须是 'X Series' 格式（X 为数字）\n");
+        prompt.append("5. 只输出 JSON，不要有其他解释文字\n");
+        prompt.append("6. 如果用户没有提到任何过滤条件，返回 {\"filters\": {}, \"keywords\": []}\n");
         
         return prompt.toString();
     }
@@ -245,7 +273,8 @@ public class ProductTools {
         log.info("使用降级方案解析过滤条件");
         
         try {
-            Map<String, String> filters = new HashMap<>();
+            Map<String, Object> filters = new HashMap<>();
+            List<String> keywords = new ArrayList<>();
             String lowerQuery = query.toLowerCase();
             
             // 简单的产品线匹配
@@ -260,11 +289,30 @@ public class ProductTools {
                 filters.put("overseas_series", matchedSeries);
             }
             
-            if (filters.isEmpty()) {
-                return "{\"filters\": {}, \"message\": \"未识别到明确的过滤条件\"}";
+            // 提取产品编号（料号）
+            String productCode = extractProductCodeSimple(query);
+            if (productCode != null) {
+                filters.put("part_num", productCode);
             }
             
-            return JSONUtil.toJsonStr(MapUtil.of("filters", filters));
+            // 提取产品型号
+            String productModel = extractProductModelSimple(query);
+            if (productModel != null) {
+                filters.put("external_model", productModel);
+            }
+            
+            // 提取技术规格关键词
+            keywords.addAll(extractSpecificationsSimple(query));
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("filters", filters);
+            result.put("keywords", keywords);
+            
+            if (filters.isEmpty() && keywords.isEmpty()) {
+                return "{\"filters\": {}, \"keywords\": [], \"message\": \"未识别到明确的过滤条件\"}";
+            }
+            
+            return JSONUtil.toJsonStr(result);
         } catch (Exception e) {
             log.error("降级方案解析失败", e);
             return "{\"error\": \"解析失败: " + e.getMessage() + "\"}";
@@ -308,6 +356,79 @@ public class ProductTools {
         }
         
         return null;
+    }
+    
+    /**
+     * 简单的产品编号提取（降级方案）
+     */
+    private String extractProductCodeSimple(String query) {
+        // 匹配类似 "1.2.3.4" 或 "1.2.3" 的格式
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\b(\\d+\\.\\d+\\.\\d+(?:\\.\\d+)?)\\b");
+        java.util.regex.Matcher matcher = pattern.matcher(query);
+        
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 简单的产品型号提取（降级方案）
+     */
+    private String extractProductModelSimple(String query) {
+        // 匹配类似 "IPC-HFW1230"、"NVR4108-HDS2" 等型号
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\b([A-Z]{2,}-?[A-Z0-9]{3,}(?:-[A-Z0-9]+)?)\\b");
+        java.util.regex.Matcher matcher = pattern.matcher(query);
+        
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        
+        return null;
+    }
+    
+    /**
+     * 简单的技术规格提取（降级方案）
+     */
+    private List<String> extractSpecificationsSimple(String query) {
+        List<String> specs = new ArrayList<>();
+        
+        // 分辨率
+        java.util.regex.Pattern mpPattern = java.util.regex.Pattern.compile("\\b(\\d+\\.?\\d*MP)\\b");
+        java.util.regex.Matcher mpMatcher = mpPattern.matcher(query);
+        while (mpMatcher.find()) {
+            specs.add(mpMatcher.group(1));
+        }
+        
+        // 防护等级
+        java.util.regex.Pattern ipPattern = java.util.regex.Pattern.compile("\\b(IP\\d{2})\\b");
+        java.util.regex.Matcher ipMatcher = ipPattern.matcher(query);
+        while (ipMatcher.find()) {
+            specs.add(ipMatcher.group(1));
+        }
+        
+        // 焦距
+        java.util.regex.Pattern mmPattern = java.util.regex.Pattern.compile("\\b(\\d+\\.?\\d*mm)\\b");
+        java.util.regex.Matcher mmMatcher = mmPattern.matcher(query);
+        while (mmMatcher.find()) {
+            specs.add(mmMatcher.group(1));
+        }
+        
+        // 编码格式
+        if (query.toUpperCase().contains("H.265")) {
+            specs.add("H.265");
+        }
+        if (query.toUpperCase().contains("H.264")) {
+            specs.add("H.264");
+        }
+        
+        // POE
+        if (query.toUpperCase().contains("POE") || query.toUpperCase().contains("POE+")) {
+            specs.add("POE");
+        }
+        
+        return specs;
     }
 
 }
