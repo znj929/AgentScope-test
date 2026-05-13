@@ -51,6 +51,29 @@ public class MultiPathRecallFusion {
             int topK,
             Map<String, Object> filters) {
         
+        // 默认不启用 Rerank（保持向后兼容）
+        return fuse(queryEmbedding, keyword, topK, filters, null, null);
+    }
+    
+    /**
+     * 执行多路召回融合（支持 Rerank 重排序）
+     *
+     * @param queryEmbedding 查询向量
+     * @param keyword        关键词
+     * @param topK           最终返回数量
+     * @param filters        过滤条件
+     * @param rerankService  Rerank 服务（可选）
+     * @param queryText      原始查询文本（用于 Rerank）
+     * @return 融合后的搜索结果
+     */
+    public List<AnalyticDBVectorStore.SearchResult> fuse(
+            float[] queryEmbedding, 
+            String keyword, 
+            int topK,
+            Map<String, Object> filters,
+            AliyunRerankService rerankService,
+            String queryText) {
+        
         log.info("========== 开始多路召回融合 ==========");
         log.info("查询关键词: {}", keyword);
         log.info("返回数量: {}", topK);
@@ -82,6 +105,14 @@ public class MultiPathRecallFusion {
         // 使用 RRF 算法融合三路结果
         List<AnalyticDBVectorStore.SearchResult> fusedResults = 
             reciprocalRankFusion(vectorResults, textResults, structuredResults, topK);
+        
+        log.info("RRF 融合完成 - 得到 {} 条结果", fusedResults.size());
+        
+        // 如果启用了 Rerank 服务，进行第二阶段重排序
+        if (rerankService != null && !fusedResults.isEmpty()) {
+            log.info("启用 Rerank 重排序 - 候选集: {}, 最终返回: {}", fusedResults.size(), topK);
+            fusedResults = applyRerank(fusedResults, rerankService, queryText, topK);
+        }
         
         long elapsed = System.currentTimeMillis() - startTime;
         log.info("========== 多路召回融合完成 ==========");
@@ -118,7 +149,7 @@ public class MultiPathRecallFusion {
             log.info("执行全文检索 - keyword: {}, topK: {}", keyword, topK);
             
             // 使用文本为主的权重配置
-            WeightConfig textConfig = new WeightConfig(0.3, 0.7, "TEXT_FOCUSED");
+            WeightConfig textConfig = new WeightConfig(0.4, 0.6, "TEXT_FOCUSED");
             
             // 创建一个零向量用于占位（实际不使用向量相似度）
             float[] dummyVector = new float[1536]; // 假设向量维度为 1536
@@ -441,6 +472,57 @@ public class MultiPathRecallFusion {
             return matcher.group();
         }
         return null;
+    }
+    
+    /**
+     * 应用 Rerank 重排序
+     *
+     * @param candidates    候选结果列表
+     * @param rerankService Rerank 服务
+     * @param queryText     原始查询文本
+     * @param topK          最终返回数量
+     * @return 重排序后的结果
+     */
+    private List<AnalyticDBVectorStore.SearchResult> applyRerank(
+            List<AnalyticDBVectorStore.SearchResult> candidates,
+            AliyunRerankService rerankService,
+            String queryText,
+            int topK) {
+        
+        try {
+            // 提取候选集的文档内容
+            List<String> documents = candidates.stream()
+                .map(AnalyticDBVectorStore.SearchResult::getContent)
+                .collect(Collectors.toList());
+            
+            // 调用 Rerank 服务
+            List<AliyunRerankService.RerankResult> rerankedResults = 
+                rerankService.rerank(queryText, documents, topK);
+            
+            if (rerankedResults == null || rerankedResults.isEmpty()) {
+                log.warn("Rerank 结果为空，返回原始融合结果的前 {} 个", topK);
+                return candidates.subList(0, Math.min(topK, candidates.size()));
+            }
+            
+            // 根据 Rerank 结果的索引，从原始候选集中获取对应的 SearchResult
+            List<AnalyticDBVectorStore.SearchResult> finalResults = new ArrayList<>();
+            for (AliyunRerankService.RerankResult rerankResult : rerankedResults) {
+                int index = rerankResult.getIndex();
+                if (index >= 0 && index < candidates.size()) {
+                    AnalyticDBVectorStore.SearchResult originalResult = candidates.get(index);
+                    // 更新相似度分数为 Rerank 分数
+                    originalResult.setSimilarityScore(rerankResult.getRelevanceScore());
+                    finalResults.add(originalResult);
+                }
+            }
+            
+            log.info("Rerank 重排序完成 - 最终返回 {} 个结果", finalResults.size());
+            return finalResults;
+            
+        } catch (Exception e) {
+            log.error("Rerank 阶段失败，降级返回原始融合结果的前 {} 个结果", topK, e);
+            return candidates.subList(0, Math.min(topK, candidates.size()));
+        }
     }
     
     /**

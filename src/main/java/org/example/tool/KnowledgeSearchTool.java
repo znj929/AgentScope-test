@@ -197,11 +197,31 @@ public class KnowledgeSearchTool {
             String strategyUsed;
             
             if (enableMultiPathRecall) {
-                // 策略1：多路召回融合（推荐）
+                // 策略1：多路召回融合 + Rerank 重排序（推荐）
                 log.info("启用多路召回融合策略");
                 MultiPathRecallFusion fusion = new MultiPathRecallFusion(vectorStore);
-                results = fusion.fuse(queryEmbedding, searchKeywords != null ? searchKeywords : query, topK, filterMap);
-                strategyUsed = "MULTI_PATH_FUSION";
+                
+                // 如果启用了 Rerank，传入 rerankService 进行第二阶段重排序
+                if (enableRerank && rerankService != null) {
+                    log.info("多路召回融合后启用 Rerank 重排序 - 候选集: {}, 最终返回: {}", topK * 2, topK);
+                    results = fusion.fuse(
+                        queryEmbedding, 
+                        searchKeywords != null ? searchKeywords : query, 
+                        topK, 
+                        filterMap,
+                        rerankService,
+                        query  // 使用原始查询文本进行 Rerank
+                    );
+                } else {
+                    // 不启用 Rerank，仅使用 RRF 融合
+                    results = fusion.fuse(
+                        queryEmbedding, 
+                        searchKeywords != null ? searchKeywords : query, 
+                        topK, 
+                        filterMap
+                    );
+                }
+                strategyUsed = "MULTI_PATH_FUSION" + (enableRerank ? "_WITH_RERANK" : "");
                 
             } else if (enableRerank && rerankService != null) {
                 // 策略2：两阶段检索：召回 + 重排序

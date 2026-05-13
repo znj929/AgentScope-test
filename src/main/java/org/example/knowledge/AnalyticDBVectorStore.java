@@ -76,17 +76,17 @@ public class AnalyticDBVectorStore {
      * @param metadata   元数据
      */
     public void insertVector(String documentId, String content, float[] embedding, Map<String, Object> metadata) {
+        // 注意: document_tr_v4 表没有 metadata 列，metadata 参数将被忽略
         String sql = String.format(
-            "INSERT INTO %s (document_id, content, vector, metadata, created_at, updated_at) VALUES (?, ?, ?::vector, ?::jsonb, ?, ?)",
+            "INSERT INTO %s (document_id, content, vector, created_at, updated_at) VALUES (?, ?, ?::vector, ?, ?)",
             analyticDBConfig.getTableName()
         );
 
         try {
             String vectorStr = arrayToVectorString(embedding);
-            String metadataJson = metadata != null ? mapToJsonString(metadata) : "{}";
             Timestamp now = Timestamp.valueOf(LocalDateTime.now());
 
-            jdbcTemplate.update(sql, documentId, content, vectorStr, metadataJson, now, now);
+            jdbcTemplate.update(sql, documentId, content, vectorStr, now, now);
             log.debug("向量插入成功: documentId={}", documentId);
         } catch (Exception e) {
             log.error("向量插入失败: documentId={}", documentId, e);
@@ -112,18 +112,18 @@ public class AnalyticDBVectorStore {
                                       String partNum, String productName, String description,
                                       String externalModel, String specification,
                                       float[] embedding, Map<String, Object> metadata) {
+        // 注意: document_tr_v4 表没有 metadata 列，metadata 参数将被忽略
         String sql = String.format(
-            "INSERT INTO %s (document_id, content, overseas_product_line, part_num, product_name, description, external_model, specification, vector, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::vector, ?::jsonb, ?, ?)",
+            "INSERT INTO %s (document_id, content, overseas_product_line, part_num, product_name, description, external_model, specification, vector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::vector, ?, ?)",
             analyticDBConfig.getTableName()
         );
 
         try {
             String vectorStr = arrayToVectorString(embedding);
-            String metadataJson = metadata != null ? mapToJsonString(metadata) : "{}";
             Timestamp now = Timestamp.valueOf(LocalDateTime.now());
 
             jdbcTemplate.update(sql, documentId, content, overseasProductLine, partNum, productName, 
-                              description, externalModel, specification, vectorStr, metadataJson, now, now);
+                              description, externalModel, specification, vectorStr, now, now);
             log.debug("向量插入成功: documentId={}", documentId);
         } catch (Exception e) {
             log.error("向量插入失败: documentId={}", documentId, e);
@@ -137,8 +137,9 @@ public class AnalyticDBVectorStore {
      * @param vectors 向量记录列表
      */
     public void batchInsertVectors(List<VectorRecord> vectors) {
+        // 注意: document_tr_v4 表没有 metadata 列
         String sql = String.format(
-            "INSERT INTO %s (document_id, content, overseas_product_line, part_num, product_name, description, external_model, specification, vector, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::vector, ?::jsonb, ?, ?)",
+            "INSERT INTO %s (document_id, content, overseas_product_line, part_num, product_name, description, external_model, specification, vector, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::vector, ?, ?)",
             analyticDBConfig.getTableName()
         );
 
@@ -147,7 +148,6 @@ public class AnalyticDBVectorStore {
 
         for (VectorRecord record : vectors) {
             String vectorStr = arrayToVectorString(record.getEmbedding());
-            String metadataJson = record.getMetadata() != null ? mapToJsonString(record.getMetadata()) : "{}";
             batchArgs.add(new Object[]{
                 record.getDocumentId(),
                 record.getContent(),
@@ -158,7 +158,6 @@ public class AnalyticDBVectorStore {
                 record.getExternalModel(),
                 record.getSpecification(),
                 vectorStr,
-                metadataJson,
                 now,
                 now
             });
@@ -331,12 +330,33 @@ public class AnalyticDBVectorStore {
                     whereClause.append(" AND overseas_series = ?");
                     params.add(value.toString());
                     log.info("添加过滤条件: overseas_series = {}", value);
-                } else {
-                    // 其他字段假设在 metadata 中
-                    whereClause.append(" AND metadata->>? ").append("= ?");
-                    params.add(field);
+                } else if (field.equals("part_num")) {
+                    whereClause.append(" AND part_num = ?");
                     params.add(value.toString());
-                    log.info("添加过滤条件: {} = {}", field, value);
+                    log.info("添加过滤条件: part_num = {}", value);
+                } else if (field.equals("product_name")) {
+                    whereClause.append(" AND product_name = ?");
+                    params.add(value.toString());
+                    log.info("添加过滤条件: product_name = {}", value);
+                } else if (field.equals("external_model")) {
+                    whereClause.append(" AND external_model = ?");
+                    params.add(value.toString());
+                    log.info("添加过滤条件: external_model = {}", value);
+                } else if (field.equals("specification")) {
+                    whereClause.append(" AND specification = ?");
+                    params.add(value.toString());
+                    log.info("添加过滤条件: specification = {}", value);
+                } else if (field.equals("description")) {
+                    whereClause.append(" AND description = ?");
+                    params.add(value.toString());
+                    log.info("添加过滤条件: description = {}", value);
+                } else if (field.equals("sales_status")) {
+                    whereClause.append(" AND sales_status = ?");
+                    params.add(value.toString());
+                    log.info("添加过滤条件: sales_status = {}", value);
+                } else {
+                    // 跳过不支持的字段，记录警告日志
+                    log.warn("跳过不支持的过滤字段: {}，该字段在数据库中不存在", field);
                 }
             }
         }
@@ -586,19 +606,34 @@ public class AnalyticDBVectorStore {
         List<Object> params = new ArrayList<>();
         params.add("%" + keyword + "%");
         
-        // 添加过滤条件
+        // 添加过滤条件 - 仅支持已知的独立字段
         if (filters != null && !filters.isEmpty()) {
             for (Map.Entry<String, Object> entry : filters.entrySet()) {
                 String field = entry.getKey();
                 Object value = entry.getValue();
                 
+                // 仅支持数据库中存在的独立字段
                 if (field.equals("overseas_product_line")) {
                     whereClause.append(" AND overseas_product_line = ?");
                     params.add(value.toString());
-                } else {
-                    whereClause.append(" AND metadata->>? ").append("= ?");
-                    params.add(field);
+                } else if (field.equals("part_num")) {
+                    whereClause.append(" AND part_num = ?");
                     params.add(value.toString());
+                } else if (field.equals("product_name")) {
+                    whereClause.append(" AND product_name = ?");
+                    params.add(value.toString());
+                } else if (field.equals("external_model")) {
+                    whereClause.append(" AND external_model = ?");
+                    params.add(value.toString());
+                } else if (field.equals("specification")) {
+                    whereClause.append(" AND specification = ?");
+                    params.add(value.toString());
+                } else if (field.equals("description")) {
+                    whereClause.append(" AND description = ?");
+                    params.add(value.toString());
+                } else {
+                    // 跳过不支持的字段，记录警告日志
+                    log.warn("跳过不支持的过滤字段: {}，该字段在数据库中不存在", field);
                 }
             }
         }
@@ -750,17 +785,17 @@ public class AnalyticDBVectorStore {
      * @param metadata   新的元数据
      */
     public void updateVector(String documentId, String content, float[] embedding, Map<String, Object> metadata) {
+        // 注意: document_tr_v4 表没有 metadata 列，metadata 参数将被忽略
         String sql = String.format(
-            "UPDATE %s SET content = ?, vector = ?::vector, metadata = ?::jsonb, updated_at = ? WHERE document_id = ?",
+            "UPDATE %s SET content = ?, vector = ?::vector, updated_at = ? WHERE document_id = ?",
             analyticDBConfig.getTableName()
         );
 
         try {
             String vectorStr = arrayToVectorString(embedding);
-            String metadataJson = metadata != null ? mapToJsonString(metadata) : "{}";
             Timestamp now = Timestamp.valueOf(LocalDateTime.now());
 
-            jdbcTemplate.update(sql, content, vectorStr, metadataJson, now, documentId);
+            jdbcTemplate.update(sql, content, vectorStr, now, documentId);
             log.debug("向量更新成功: documentId={}", documentId);
         } catch (Exception e) {
             log.error("向量更新失败: documentId={}", documentId, e);
@@ -786,18 +821,18 @@ public class AnalyticDBVectorStore {
                                       String partNum, String productName, String description,
                                       String externalModel, String specification,
                                       float[] embedding, Map<String, Object> metadata) {
+        // 注意: document_tr_v4 表没有 metadata 列，metadata 参数将被忽略
         String sql = String.format(
-            "UPDATE %s SET content = ?, overseas_product_line = ?, part_num = ?, product_name = ?, description = ?, external_model = ?, specification = ?, vector = ?::vector, metadata = ?::jsonb, updated_at = ? WHERE document_id = ?",
+            "UPDATE %s SET content = ?, overseas_product_line = ?, part_num = ?, product_name = ?, description = ?, external_model = ?, specification = ?, vector = ?::vector, updated_at = ? WHERE document_id = ?",
             analyticDBConfig.getTableName()
         );
 
         try {
             String vectorStr = arrayToVectorString(embedding);
-            String metadataJson = metadata != null ? mapToJsonString(metadata) : "{}";
             Timestamp now = Timestamp.valueOf(LocalDateTime.now());
 
             jdbcTemplate.update(sql, content, overseasProductLine, partNum, productName, description,
-                              externalModel, specification, vectorStr, metadataJson, now, documentId);
+                              externalModel, specification, vectorStr, now, documentId);
             log.debug("向量更新成功: documentId={}", documentId);
         } catch (Exception e) {
             log.error("向量更新失败: documentId={}", documentId, e);
